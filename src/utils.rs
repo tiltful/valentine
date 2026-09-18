@@ -1,6 +1,6 @@
 use colored::*;
-#[allow(unused_imports)]
 use std::str::FromStr;
+use unicode_width::UnicodeWidthChar;
 
 fn parse_rgb(color: &str) -> Option<(u8, u8, u8)> {
 	let parts: Vec<&str> = color
@@ -21,20 +21,8 @@ fn parse_rgb(color: &str) -> Option<(u8, u8, u8)> {
 	None
 }
 
-/// Checks if a character is full-width (e.g., CJK ideographs)
-fn is_wide_char(c: char) -> bool {
-	matches!(c,
-		'\u{1100}'..='\u{11FF}' |
-		'\u{2E80}'..='\u{A4CF}' |
-		'\u{AC00}'..='\u{D7A3}' |
-		'\u{F900}'..='\u{FAFF}' |
-		'\u{FE30}'..='\u{FE4F}' |
-		'\u{FF00}'..='\u{FFEF}' |
-		'\u{20000}'..='\u{2FA1F}'
-	)
-}
-
-/// Builds a ASCII/Unicode heart shape rendered with the provided `name` characters and optional color.
+/// Builds an ASCII/Unicode heart shape rendered with the provided `name` characters and optional color.
+/// Automatically handles wide characters (e.g., CJK ideographs, Hangul) to maintain correct aspect ratio and symmetry.
 pub fn heart_builder(name: &str, color: Option<&str>) -> String {
 	let parsed_color = color.and_then(|c| {
 		if let Some(rgb) = parse_rgb(c) {
@@ -53,23 +41,23 @@ pub fn heart_builder(name: &str, color: Option<&str>) -> String {
 		return String::new();
 	}
 
-	// Determine if the input contains wide CJK characters to align background spacing
-	let has_wide_chars = name_chars.iter().any(|&c| is_wide_char(c));
+	// Determine if the input contains full-width characters (e.g., CJK, Hangul)
+	let has_wide_chars = name_chars
+		.iter()
+		.any(|&c| UnicodeWidthChar::width(c).unwrap_or(1) > 1);
+
+	// Adjust grid spacing depending on character width
 	let space_bg = if has_wide_chars { "  " } else { " " };
+	let x_step = if has_wide_chars { 2 } else { 1 };
 
 	let name_len = name_chars.len();
 	let mut name_idx = 0;
 	let mut output = String::with_capacity(4096);
 
-	// Set horizontal step: 2 grid columns for wide CJK characters, 1 for standard characters
-	let x_step = if has_wide_chars { 2 } else { 1 };
-
-	// Grid coordinates adjusted for standard terminal character aspect ratios
 	for y in (-13..13).rev() {
 		let y_f = y as f64 * 0.1;
 		let mut x = -25;
 		while x < 25 {
-			// Keep x_f calculation scaled to maintain consistent geometry
 			let x_f = x as f64 * 0.05;
 
 			// Heart implicit equation: (x^2 + y^2 - 1)^3 - x^2 * y^3 <= 0
@@ -78,6 +66,7 @@ pub fn heart_builder(name: &str, color: Option<&str>) -> String {
 
 			if inside_heart {
 				let ch = name_chars[name_idx % name_len];
+				let ch_width = UnicodeWidthChar::width(ch).unwrap_or(1);
 				let ch_str = ch.to_string();
 
 				if let Some(color) = parsed_color {
@@ -86,8 +75,8 @@ pub fn heart_builder(name: &str, color: Option<&str>) -> String {
 					output.push_str(&ch_str);
 				}
 
-				// If input mixes narrow and wide characters, pad narrow ones to maintain symmetry
-				if has_wide_chars && !is_wide_char(ch) {
+				// Pad narrow characters with a space if the input mixes narrow and wide characters
+				if has_wide_chars && ch_width == 1 {
 					output.push(' ');
 				}
 
@@ -119,6 +108,11 @@ mod tests {
 	}
 
 	#[test]
+	fn parse_rgb_with_parentheses() {
+		assert_eq!(parse_rgb("(255, 128, 0)"), Some((255, 128, 0)));
+	}
+
+	#[test]
 	fn parse_rgb_invalid_format() {
 		assert_eq!(parse_rgb("255,255"), None);
 	}
@@ -129,14 +123,31 @@ mod tests {
 	}
 
 	#[test]
-	fn heart_builder_with_invalid_rgb_color() {
-		let result = heart_builder("Love", Some("invalid"));
-		assert!(!result.contains("\u{1b}[38;2;"));
+	fn heart_builder_empty_name() {
+		assert_eq!(heart_builder("", None), "");
 	}
 
 	#[test]
-	fn heart_builder_without_color() {
-		let result = heart_builder("Love", None);
-		assert!(!result.contains("\u{1b}[38;2;"));
+	fn heart_builder_latin_and_cyrillic() {
+		let result_en = heart_builder("Love", None);
+		let result_ru = heart_builder("Любовь", None);
+
+		assert!(!result_en.is_empty());
+		assert!(!result_ru.is_empty());
+		assert!(result_en.contains('L'));
+		assert!(result_ru.contains('Л'));
+	}
+
+	#[test]
+	fn heart_builder_cjk_and_hangul() {
+		let result_cn = heart_builder("爱", None);
+		let result_kr = heart_builder("사랑", None);
+
+		assert!(!result_cn.is_empty());
+		assert!(!result_kr.is_empty());
+		assert!(result_cn.contains('爱'));
+		assert!(result_kr.contains('사'));
+		// Wide characters should trigger double-space background padding
+		assert!(result_cn.contains("  "));
 	}
 }

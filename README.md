@@ -23,7 +23,7 @@ cargo build --release
 
 ___
 ## 🌐 Deployment
-Run `docker run --rm -it t1ltxz/valentine:latest -n <NAME>`.
+Run `docker run --rm -it Tilt/valentine:latest -n <NAME>`.
 ---
 ## 🌎 Running in Browser
 ```
